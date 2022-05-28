@@ -1,0 +1,111 @@
+volumes:
+  pgsqldata:
+  pgsqlconf:
+  pgsqllog:
+  zabbixdata:
+  grafanadata:
+
+networks:
+  network-zabbix:
+    driver: bridge
+
+services:
+  pgsql:
+    container_name: pgsql
+    restart: unless-stopped
+    image: postgres:latest
+    networks:
+      - network-zabbix
+    volumes:
+      - pgsqldata:/var/lib/postgresql/data
+      - pgsqlconf:/etc/postgresql
+      - pgsqllog:/var/log/postgresql
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpassworD123
+      POSTGRES_DB: zabbixdb
+
+  zabbix-server:
+    container_name: zabbix-server
+    restart: unless-stopped
+    image: zabbix/zabbix-server-pgsql:latest
+    networks:
+      - network-zabbix
+    links:
+      - pgsql
+    volumes:
+      - zabbixdata:/usr/lib/zabbix
+    environment:
+      DB_SERVER_HOST: pgsql
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpassworD123
+      POSTGRES_DB: zabbixdb
+    depends_on:
+      - pgsql
+
+  zabbix-webserver:
+    container_name: zabbix-webserver
+    restart: unless-stopped
+    image: zabbix/zabbix-web-nginx-pgsql:latest
+    networks:
+      - network-zabbix
+    links:
+      - pgsql
+      - zabbix-server
+    ports:
+      - '80:8080'
+      - '443:8443'
+    environment:
+      ZBX_HOSTNAME: zabbix-server
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: 10051
+      DB_SERVER_HOST: pgsql
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpassworD123
+      POSTGRES_DB: zabbixdb
+      
+    depends_on:
+      - pgsql
+      - zabbix-server
+  
+  zabbix-agent:
+    container_name: zabbix-agent
+    privileged: true
+    restart: unless-stopped
+    image: zabbix/zabbix-agent:latest
+    networks:
+      - network-zabbix
+    links:
+      - zabbix-server
+    ports:
+       - '10050:10050'
+    environment:
+      ZBX_HOSTNAME: zabbix-agent
+      ZBX_SERVER_PORT: 10051
+      ZBX_SERVER_HOST: zabbix-server
+    depends_on:
+      - zabbix-server
+    
+  grafana:
+    container_name: grafana
+    user: root
+    restart: unless-stopped
+    image: grafana/grafana:latest
+    environment:
+      - GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=alexanderzobnin-zabbix-datasource
+
+    networks:
+      - network-zabbix
+    links:
+      - pgsql
+      - zabbix-server
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./grafana/plugins:/var/lib/grafana/plugins
+    depends_on:
+      - pgsql
+      - zabbix-server
+    
